@@ -160,12 +160,15 @@ async function fetchUserId(page, token) {
     const parts = token.split('.');
     if (parts.length === 3) {
       try {
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+        // Handle base64url encoding (replace - with + and _ with /)
+        const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const payload = JSON.parse(Buffer.from(base64, 'base64').toString('utf-8'));
         if (payload.sub) {
           console.log(`   Found user ID in JWT: ${payload.sub}`);
           return payload.sub;
         }
       } catch (e) {
+        console.log(`   JWT parsing error: ${e.message}`);
         // If JWT parsing fails, continue to API calls
       }
     }
@@ -219,10 +222,12 @@ export async function validateToken(token) {
 
     let userId;
     try {
-      const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+      // Handle base64url encoding (replace - with + and _ with /)
+      const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const payload = JSON.parse(Buffer.from(base64, 'base64').toString('utf-8'));
       userId = payload.sub;
     } catch (e) {
-      console.log('❌ Failed to parse token');
+      console.log('❌ Failed to parse token:', e.message);
       return false;
     }
 
