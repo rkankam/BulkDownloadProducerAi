@@ -7,7 +7,10 @@ import { sanitizeFilename } from './utils.js';
  * Download a single track with .downloading pattern
  */
 export async function downloadTrack(generation, token, outputDir, format = 'mp3') {
-  const filename = sanitizeFilename(`${generation.title}_${generation.id}.${format}`);
+  // Handle both generations (from library) and playlist items (with riff_id)
+  const trackId = generation.riff_id || generation.id;
+  const trackTitle = generation.title || generation.name || `Track_${trackId}`;
+  const filename = sanitizeFilename(`${trackTitle}_${trackId}.${format}`);
   const finalPath = path.join(outputDir, filename);
   const tempPath = `${finalPath}.downloading`;
 
@@ -30,7 +33,7 @@ export async function downloadTrack(generation, token, outputDir, format = 'mp3'
 
   // Download to .downloading
   try {
-    const url = getDownloadUrl(generation.id, format);
+    const url = getDownloadUrl(trackId, format);
     const response = await fetch(url, {
       headers: {
         'Authorization': `Bearer ${token}`,
