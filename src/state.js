@@ -4,13 +4,21 @@ import path from 'path';
 const STATE_FILE = 'download-state.json';
 
 /**
- * Load state from file
+ * Load state from file with migration support
  */
 export function loadState() {
   if (fs.existsSync(STATE_FILE)) {
     try {
       const data = fs.readFileSync(STATE_FILE, 'utf-8');
-      return JSON.parse(data);
+      let state = JSON.parse(data);
+
+      // Migrate old format to new format if needed
+      if (state && !state.mode) {
+        state = migrateStateFile(state);
+        saveState(state);
+      }
+
+      return state;
     } catch (error) {
       console.error('Error loading state file:', error.message);
       return getDefaultState();
@@ -45,13 +53,84 @@ export function resetState() {
  */
 function getDefaultState() {
   return {
-    lastOffset: 0,
+    mode: 'library',
+    library: {
+      lastOffset: 0,
+      downloaded: 0,
+      skipped: 0,
+      failed: [],
+      lastRun: null,
+      createdAt: new Date().toISOString(),
+    },
+    playlists: {},
+  };
+}
+
+/**
+ * Migrate old state file format to new format
+ */
+function migrateStateFile(oldState) {
+  return {
+    mode: 'library',
+    library: {
+      lastOffset: oldState.lastOffset || 0,
+      downloaded: oldState.downloaded || 0,
+      skipped: oldState.skipped || 0,
+      failed: oldState.failed || [],
+      lastRun: oldState.lastRun || null,
+      createdAt: oldState.createdAt || new Date().toISOString(),
+    },
+    playlists: {},
+  };
+}
+
+/**
+ * Load playlist-specific state
+ */
+export function loadPlaylistState(playlistId) {
+  const state = loadState();
+
+  if (state.playlists && state.playlists[playlistId]) {
+    return state.playlists[playlistId];
+  }
+
+  return getDefaultPlaylistState();
+}
+
+/**
+ * Save playlist-specific state
+ */
+export function savePlaylistState(playlistId, playlistState) {
+  const state = loadState();
+
+  if (!state.playlists) {
+    state.playlists = {};
+  }
+
+  state.playlists[playlistId] = playlistState;
+  saveState(state);
+}
+
+/**
+ * Get default playlist state structure
+ */
+export function getDefaultPlaylistState() {
+  return {
     downloaded: 0,
     skipped: 0,
     failed: [],
     lastRun: null,
     createdAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Reset all playlist states
+ */
+export function resetPlaylistStates() {
+  const state = loadState();
+  state.playlists = {};
+  saveState(state);
 }
 
 /**
