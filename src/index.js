@@ -50,7 +50,6 @@ async function main() {
     // Step 2.5: Download mode selection
     console.log('\n📋 Step 2.5: Download Mode Selection\n');
     const mode = await promptDownloadMode();
-    closeReadline();
 
     let selectedPlaylists = [];
     if (mode === 'playlists') {
@@ -61,6 +60,9 @@ async function main() {
       selectedPlaylists = await promptPlaylistSelection(allPlaylists);
       console.log(`\n✅ Selected ${selectedPlaylists.length} playlist(s)`);
     }
+
+    // Close readline only after all prompts are done
+    closeReadline();
 
     // Step 3: Setup output directory
     console.log('\n📋 Step 3: Setup\n');

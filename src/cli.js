@@ -1,98 +1,93 @@
-import readline from 'readline/promises';
+import readline from 'readline';
 import { stdin as input, stdout as output } from 'process';
 
-let rl = null;
-
-/**
- * Create or get readline interface
- */
-function getReadline() {
-  if (!rl) {
-    rl = readline.createInterface({ input, output });
-  }
-  return rl;
-}
+const rl = readline.createInterface({ input, output });
 
 /**
  * Display menu and get user's choice for download mode
- * @returns {Promise<'all'|'playlists'>}
  */
-export async function promptDownloadMode() {
-  const readlineInstance = getReadline();
+export function promptDownloadMode() {
+  return new Promise((resolve) => {
+    console.log('========================================');
+    console.log('  Download Mode Selection');
+    console.log('========================================\n');
+    console.log('Choose download mode:');
+    console.log('  [1] Download entire library (all generations)');
+    console.log('  [2] Select specific playlists');
+    console.log();
 
-  console.log('========================================');
-  console.log('  Download Mode Selection');
-  console.log('========================================\n');
-  console.log('Choose download mode:');
-  console.log('  [1] Download entire library (all generations)');
-  console.log('  [2] Select specific playlists');
-  console.log();
+    const askQuestion = () => {
+      rl.question('Enter choice (1 or 2): ', (choice) => {
+        if (choice === '1') {
+          resolve('all');
+        } else if (choice === '2') {
+          resolve('playlists');
+        } else {
+          console.log('❌ Invalid choice. Please enter 1 or 2.\n');
+          askQuestion();
+        }
+      });
+    };
 
-  while (true) {
-    const choice = await readlineInstance.question('Enter choice (1 or 2): ');
-
-    if (choice === '1') {
-      return 'all';
-    } else if (choice === '2') {
-      return 'playlists';
-    } else {
-      console.log('❌ Invalid choice. Please enter 1 or 2.\n');
-    }
-  }
+    askQuestion();
+  });
 }
 
 /**
  * Display playlists and prompt for multi-selection
- * @param {Array} playlists - Array of playlist objects
- * @returns {Promise<Array>} - Selected playlist objects
  */
-export async function promptPlaylistSelection(playlists) {
-  const readlineInstance = getReadline();
+export function promptPlaylistSelection(playlists) {
+  return new Promise((resolve) => {
+    if (playlists.length === 0) {
+      console.log('⚠️  No playlists found.');
+      resolve([]);
+      return;
+    }
 
-  if (playlists.length === 0) {
-    console.log('⚠️  No playlists found.');
-    return [];
-  }
+    displayPlaylistList(playlists);
 
-  displayPlaylistList(playlists);
+    const askQuestion = () => {
+      rl.question(
+        'Enter playlist numbers (e.g., 1,3,5 or 1-3) or "all": ',
+        (input) => {
+          const indices = parseMultiSelectInput(input.trim(), playlists.length);
 
-  while (true) {
-    const input = await readlineInstance.question(
-      'Enter playlist numbers (e.g., 1,3,5 or 1-3) or "all": '
-    );
+          if (indices === null) {
+            console.log(
+              '❌ Invalid input. Please use format: 1,3,5 or 1-3 or "all".\n'
+            );
+            askQuestion();
+            return;
+          }
 
-    const indices = parseMultiSelectInput(input.trim(), playlists.length);
+          if (indices.length === 0) {
+            console.log('❌ No playlists selected.\n');
+            askQuestion();
+            return;
+          }
 
-    if (indices === null) {
-      console.log(
-        '❌ Invalid input. Please use format: 1,3,5 or 1-3 or "all".\n'
+          // Get selected playlists
+          const selected = indices.map(idx => playlists[idx]);
+
+          console.log();
+          console.log(`✅ Selected ${selected.length} playlist(s):`);
+          selected.forEach((pl, i) => {
+            const trackCount = pl.trackCount || pl.tracks?.length || 0;
+            console.log(`   ${i + 1}. ${pl.name} (${trackCount} tracks)`);
+          });
+          console.log();
+
+          resolve(selected);
+        }
       );
-      continue;
-    }
+    };
 
-    if (indices.length === 0) {
-      console.log('❌ No playlists selected.\n');
-      continue;
-    }
-
-    // Get selected playlists
-    const selected = indices.map(idx => playlists[idx]);
-
-    console.log();
-    console.log(`✅ Selected ${selected.length} playlist(s):`);
-    selected.forEach((pl, i) => {
-      const trackCount = pl.trackCount || pl.tracks?.length || 0;
-      console.log(`   ${i + 1}. ${pl.name} (${trackCount} tracks)`);
-    });
-    console.log();
-
-    return selected;
-  }
+    askQuestion();
+  });
 }
 
 /**
  * Display formatted playlist list with indices
- * @param {Array} playlists - Array of playlist objects
  */
 function displayPlaylistList(playlists) {
   console.log();
@@ -110,10 +105,7 @@ function displayPlaylistList(playlists) {
 }
 
 /**
- * Parse multi-select input (e.g., "1,3,5" or "1-4,7")
- * @param {string} input - User input string
- * @param {number} maxIndex - Maximum valid index
- * @returns {Array<number>|null} - Array of selected indices (0-based) or null if invalid
+ * Parse multi-select input
  */
 function parseMultiSelectInput(input, maxIndex) {
   if (!input) {
@@ -126,8 +118,6 @@ function parseMultiSelectInput(input, maxIndex) {
   }
 
   const indices = new Set();
-
-  // Split by comma
   const parts = input.split(',');
 
   for (const part of parts) {
@@ -171,8 +161,5 @@ function parseMultiSelectInput(input, maxIndex) {
  * Close readline interface
  */
 export function closeReadline() {
-  if (rl) {
-    rl.close();
-    rl = null;
-  }
+  rl.close();
 }

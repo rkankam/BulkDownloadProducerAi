@@ -49,7 +49,11 @@ export async function fetchAllPlaylists(token, userId) {
   while (hasMore) {
     try {
       const response = await fetchPlaylists(token, userId, offset, limit);
-      const playlists = response.playlists || [];
+
+      // Response can be array directly or object with playlists property
+      const playlists = Array.isArray(response)
+        ? response
+        : (response.playlists || response.data || response.items || []);
 
       if (playlists.length === 0) {
         hasMore = false;
@@ -93,7 +97,11 @@ export async function fetchAllPlaylistTracks(token, playlistId) {
   while (hasMore) {
     try {
       const response = await fetchPlaylistTracks(token, playlistId, offset, limit);
-      const tracks = response.tracks || response.generations || [];
+
+      // Response can be array directly or object with tracks property
+      const tracks = Array.isArray(response)
+        ? response
+        : (response.tracks || response.generations || response.data || response.items || []);
 
       if (tracks.length === 0) {
         hasMore = false;
