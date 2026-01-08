@@ -39,7 +39,21 @@ export async function downloadTrack(generation, token, outputDir, format = 'mp3'
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      let errorDetail = '';
+      try {
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          errorDetail = await response.json();
+        } else {
+          errorDetail = await response.text().then(t => t.substring(0, 200));
+        }
+      } catch (e) {
+        // Ignore error parsing response
+      }
+
+      throw new Error(
+        `HTTP ${response.status} ${response.statusText} - URL: ${url} - Details: ${JSON.stringify(errorDetail).substring(0, 200)}`
+      );
     }
 
     const buffer = await response.arrayBuffer();

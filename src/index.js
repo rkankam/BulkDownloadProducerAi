@@ -269,6 +269,11 @@ async function downloadPlaylists(config, selectedPlaylists) {
       failed: playlistState.failed ? playlistState.failed.length : 0,
     };
 
+    // Debug: log first track structure
+    if (tracks.length > 0) {
+      console.log(`   [DEBUG] First track structure: ${JSON.stringify(tracks[0]).substring(0, 300)}...`);
+    }
+
     for (const track of tracks) {
       try {
         const result = await downloadTrackWithRetry(
