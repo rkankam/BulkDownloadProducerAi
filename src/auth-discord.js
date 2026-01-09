@@ -27,11 +27,27 @@ export async function discordAuth(options = {}) {
     const page = await context.newPage();
 
     // Intercept all requests to capture Bearer token
+    // Only capture tokens with 'kid' in header (the real user token, not internal Supabase tokens)
     page.on('request', request => {
       const headers = request.headers();
       if (headers['authorization'] && headers['authorization'].startsWith('Bearer ')) {
-        capturedToken = headers['authorization'].replace('Bearer ', '');
-        console.log(`✅ JWT Token captured from request: ${capturedToken.substring(0, 50)}...`);
+        const token = headers['authorization'].replace('Bearer ', '');
+
+        // Check if this is the real user token (has 'kid' in JWT header)
+        try {
+          const headerPart = token.split('.')[0];
+          const headerJson = JSON.parse(Buffer.from(headerPart, 'base64').toString('utf-8'));
+          if (headerJson.kid) {
+            capturedToken = token;
+            console.log(`✅ JWT Token captured (with kid): ${token.substring(0, 50)}...`);
+          }
+        } catch (e) {
+          // If parsing fails, still capture as fallback
+          if (!capturedToken) {
+            capturedToken = token;
+            console.log(`✅ JWT Token captured (fallback): ${token.substring(0, 50)}...`);
+          }
+        }
       }
     });
 
@@ -156,13 +172,19 @@ async function extractTokenFromStorage(page) {
  */
 async function fetchUserId(page, token) {
   try {
+    console.log(`   [DEBUG] Token length: ${token?.length || 0}`);
+    console.log(`   [DEBUG] Token start: ${token?.substring(0, 20) || 'null'}...`);
+
     // Try to extract from JWT token payload
     const parts = token.split('.');
+    console.log(`   [DEBUG] JWT parts: ${parts.length}`);
+
     if (parts.length === 3) {
       try {
         // Handle base64url encoding (replace - with + and _ with /)
         const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
         const payload = JSON.parse(Buffer.from(base64, 'base64').toString('utf-8'));
+        console.log(`   [DEBUG] Payload parsed, sub: ${payload.sub}`);
         if (payload.sub) {
           console.log(`   Found user ID in JWT: ${payload.sub}`);
           return payload.sub;
@@ -280,6 +302,26 @@ export async function loadConfig(configPath = 'config.json') {
     if (!isValid) {
       console.log('⚠️  Stored token is invalid, need re-authentication');
       return null;
+    }
+
+    // Fix userId if it's "unknown" by extracting from JWT
+    if (config.userId === 'unknown') {
+      console.log('⚠️  userId is unknown, extracting from token...');
+      try {
+        const parts = config.token.split('.');
+        if (parts.length === 3) {
+          const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+          const payload = JSON.parse(Buffer.from(base64, 'base64').toString('utf-8'));
+          if (payload.sub) {
+            config.userId = payload.sub;
+            // Save fixed config
+            fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+            console.log(`✅ userId fixed: ${config.userId}`);
+          }
+        }
+      } catch (e) {
+        console.log('⚠️  Could not extract userId from token');
+      }
     }
 
     console.log(`✅ Config loaded for user: ${config.userId}`);

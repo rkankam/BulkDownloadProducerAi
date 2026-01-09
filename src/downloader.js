@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { getDownloadUrl } from './api.js';
+import { getDownloadUrl, fetchRiffTitle } from './api.js';
 import { sanitizeFilename } from './utils.js';
 
 /**
@@ -9,7 +9,14 @@ import { sanitizeFilename } from './utils.js';
 export async function downloadTrack(generation, token, outputDir, format = 'mp3') {
   // Handle both generations (from library) and playlist items (with riff_id)
   const trackId = generation.riff_id || generation.id;
-  const trackTitle = generation.title || generation.name || `Track_${trackId}`;
+
+  // Get title: use existing title, or fetch from riff page if missing
+  let trackTitle = generation.title || generation.name;
+  if (!trackTitle && generation.riff_id) {
+    trackTitle = await fetchRiffTitle(generation.riff_id);
+  }
+  trackTitle = trackTitle || `Track_${trackId}`;
+
   const filename = sanitizeFilename(`${trackTitle}_${trackId}.${format}`);
   const finalPath = path.join(outputDir, filename);
   const tempPath = `${finalPath}.downloading`;

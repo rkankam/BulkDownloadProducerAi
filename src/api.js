@@ -136,3 +136,37 @@ export async function getUserInfo(token) {
 
   return await response.json();
 }
+
+/**
+ * Fetch riff title from the public riff page (og:title meta tag)
+ * Returns just the title part (before " by Artist")
+ */
+export async function fetchRiffTitle(riffId) {
+  try {
+    const url = `https://www.producer.ai/riff/${riffId}`;
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const html = await response.text();
+
+    // Extract og:title: "Title by Artist"
+    const match = html.match(/<meta[^>]*property="og:title"[^>]*content="([^"]*)"[^>]*>/i);
+    if (match) {
+      const fullTitle = match[1];
+      // Remove " by Artist" suffix if present
+      const byIndex = fullTitle.lastIndexOf(' by ');
+      return byIndex > 0 ? fullTitle.substring(0, byIndex) : fullTitle;
+    }
+
+    return null;
+  } catch (error) {
+    return null;
+  }
+}
