@@ -1,0 +1,3 @@
+PASS: downloadDelay found
+PASS: setTimeout found
+PASS: Console log at line 84: console.log(`\n⏱️ Download delay: ${downloadDelay}ms`);

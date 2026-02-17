@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { discordAuth, loadConfig, validateToken } from './auth-discord.js';
+import { discordAuth, loadConfig, validateToken, ensureFreshToken } from './auth-discord.js';
 import { fetchGenerations, fetchAllPlaylists, fetchAllPlaylistTracks } from './api.js';
 import { downloadTrackWithRetry } from './downloader.js';
 import { loadState, saveState, loadPlaylistState, savePlaylistState, cleanupDownloadingFiles } from './state.js';
@@ -33,6 +33,7 @@ async function main() {
 
       config = {
         token: auth.token,
+        refreshToken: auth.refreshToken,
         userId: auth.userId,
         outputDir: './downloads',
         format: 'mp3',
@@ -127,6 +128,8 @@ async function downloadLibrary(config) {
   let totalProcessed = 0;
 
   while (hasMore) {
+    config = await ensureFreshToken(config, CONFIG_PATH);
+
     console.log(`\n📥 Fetching page offset=${offset}...`);
 
     try {
@@ -253,7 +256,8 @@ async function downloadPlaylists(config, selectedPlaylists) {
     // Load playlist-specific state
     let playlistState = loadPlaylistState(playlist.id);
 
-    // Fetch all tracks in playlist
+    config = await ensureFreshToken(config, CONFIG_PATH);
+
     console.log('📥 Fetching tracks from playlist...');
     let tracks = [];
     try {
@@ -281,6 +285,8 @@ async function downloadPlaylists(config, selectedPlaylists) {
 
     for (const track of tracks) {
       try {
+        config = await ensureFreshToken(config, CONFIG_PATH);
+
         const result = await downloadTrackWithRetry(
           track,
           config.token,

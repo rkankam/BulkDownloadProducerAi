@@ -1,0 +1,2 @@
+PASS: Default 500ms found in src/index.js
+PASS: config.json has downloadDelay field: "downloadDelay": 500

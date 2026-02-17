@@ -2,6 +2,79 @@ import { chromium } from 'playwright';
 import fs from 'fs';
 import path from 'path';
 
+function decodeJwtPayload(token) {
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+  return JSON.parse(Buffer.from(base64, 'base64').toString('utf-8'));
+}
+
+export function getTokenExpiry(token) {
+  try {
+    const payload = decodeJwtPayload(token);
+    return payload?.exp ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function isTokenExpiringSoon(token, bufferSeconds = 300) {
+  const exp = getTokenExpiry(token);
+  if (!exp) return true;
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  return (exp - nowSeconds) < bufferSeconds;
+}
+
+export async function refreshToken(refreshTokenValue) {
+  const url = 'https://www.producer.ai/__api/auth/v1/token?grant_type=refresh_token';
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhndHB6dWtlem9keHJnbWZobHZ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjI5NjA5NjIsImV4cCI6MjAzODUzNjk2Mn0.KMPBzAsGkGFi-TOF-QFHB0KYHGnMJwS2LGvLlmMQ7e0',
+    },
+    body: JSON.stringify({ refresh_token: refreshTokenValue }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Token refresh failed (${response.status}): ${errorBody}`);
+  }
+
+  const data = await response.json();
+  return {
+    access_token: data.access_token,
+    refresh_token: data.refresh_token,
+    expires_in: data.expires_in,
+  };
+}
+
+export async function ensureFreshToken(config, configPath = 'config.json') {
+  if (!config.refreshToken) {
+    return config;
+  }
+
+  if (!isTokenExpiringSoon(config.token)) {
+    return config;
+  }
+
+  console.log('🔄 Token expiring soon, refreshing...');
+  try {
+    const result = await refreshToken(config.refreshToken);
+    config.token = result.access_token;
+    config.refreshToken = result.refresh_token;
+    config.tokenRefreshedAt = new Date().toISOString();
+
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    console.log('✅ Token refreshed successfully');
+  } catch (error) {
+    console.error('⚠️  Token refresh failed:', error.message);
+  }
+
+  return config;
+}
+
 /**
  * Discord OAuth Authentication via Playwright
  * Flow: producer.ai → Discord OAuth → Supabase JWT Token
@@ -69,10 +142,20 @@ export async function discordAuth(options = {}) {
       await page.waitForTimeout(1000);
     }
 
+    let capturedRefreshToken = null;
+
     if (!capturedToken) {
-      // Try extracting from localStorage/cookies as fallback
       console.log('⚠️  No token in request headers, checking storage...');
-      capturedToken = await extractTokenFromStorage(page);
+      const storageResult = await extractTokenFromStorage(page);
+      if (storageResult) {
+        capturedToken = storageResult.access_token;
+        capturedRefreshToken = storageResult.refresh_token;
+      }
+    } else {
+      const storageResult = await extractTokenFromStorage(page);
+      if (storageResult?.refresh_token) {
+        capturedRefreshToken = storageResult.refresh_token;
+      }
     }
 
     if (!capturedToken) {
@@ -81,17 +164,21 @@ export async function discordAuth(options = {}) {
 
     console.log('\n✅ Authentication successful!');
     console.log(`🔑 Token: ${capturedToken.substring(0, 80)}...`);
+    if (capturedRefreshToken) {
+      console.log(`🔄 Refresh token captured`);
+    }
 
-    // Get user ID from API call
     console.log('\n📊 Fetching user information...');
     const userId = await fetchUserId(page, capturedToken);
     console.log(`👤 User ID: ${userId}`);
 
-    // Save to config if requested
+    const expiresAt = getTokenExpiry(capturedToken);
+
     if (saveToConfig) {
       console.log(`\n💾 Saving configuration to ${configPath}`);
       const config = {
         token: capturedToken,
+        refreshToken: capturedRefreshToken,
         userId,
         outputDir: './downloads',
         format: 'mp3',
@@ -105,8 +192,9 @@ export async function discordAuth(options = {}) {
 
     return {
       token: capturedToken,
+      refreshToken: capturedRefreshToken,
       userId,
-      expiresAt: null, // TODO: Extract from JWT or API response
+      expiresAt,
     };
   } catch (error) {
     console.error('\n❌ Authentication failed:', error.message);
@@ -124,24 +212,34 @@ export async function discordAuth(options = {}) {
  */
 async function extractTokenFromStorage(page) {
   try {
-    // Check localStorage for JWT (starts with "eyJ")
-    const localStorageData = await page.evaluate(() => {
-      const items = {};
+    const supabaseAuth = await page.evaluate(() => {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('sb-')) {
+          try {
+            const parsed = JSON.parse(localStorage.getItem(key));
+            if (parsed?.access_token) {
+              return { access_token: parsed.access_token, refresh_token: parsed.refresh_token || null };
+            }
+          } catch {
+            // skip non-JSON values
+          }
+        }
+      }
+
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         const value = localStorage.getItem(key);
-        if (value && value.includes('eyJ')) {
-          items[key] = value;
+        if (value && value.startsWith('eyJ')) {
+          return { access_token: value, refresh_token: null };
         }
       }
-      return items;
+      return null;
     });
 
-    for (const [key, value] of Object.entries(localStorageData)) {
-      if (value.startsWith('eyJ')) {
-        console.log(`   Found JWT in localStorage[${key}]`);
-        return value;
-      }
+    if (supabaseAuth?.access_token) {
+      console.log(`   Found tokens in localStorage`);
+      return supabaseAuth;
     }
 
     // Check Supabase auth cookies
@@ -152,9 +250,9 @@ async function extractTokenFromStorage(page) {
           const data = JSON.parse(cookie.value);
           if (data.access_token) {
             console.log(`   Found token in cookie: ${cookie.name}`);
-            return data.access_token;
+            return { access_token: data.access_token, refresh_token: data.refresh_token || null };
           }
-        } catch (e) {
+        } catch {
           // Not JSON, skip
         }
       }
@@ -290,9 +388,23 @@ export async function loadConfig(configPath = 'config.json') {
 
     const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
-    // Validate token
     console.log('🔍 Validating stored token...');
-    const isValid = await validateToken(config.token);
+    let isValid = await validateToken(config.token);
+
+    if (!isValid && config.refreshToken) {
+      console.log('🔄 Token invalid, attempting refresh...');
+      try {
+        const result = await refreshToken(config.refreshToken);
+        config.token = result.access_token;
+        config.refreshToken = result.refresh_token;
+        config.tokenRefreshedAt = new Date().toISOString();
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        console.log('✅ Token refreshed successfully');
+        isValid = await validateToken(config.token);
+      } catch (error) {
+        console.error('⚠️  Token refresh failed:', error.message);
+      }
+    }
 
     if (!isValid) {
       console.log('⚠️  Stored token is invalid, need re-authentication');
