@@ -49,6 +49,20 @@ export function resetState() {
 }
 
 /**
+ * Get default favorites state structure
+ */
+export function getDefaultFavoritesState() {
+  return {
+    downloaded: 0,
+    skipped: 0,
+    failed: [],
+    lastPage: 0,
+    lastRun: null,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+/**
  * Get default state structure
  */
 function getDefaultState() {
@@ -63,6 +77,7 @@ function getDefaultState() {
       createdAt: new Date().toISOString(),
     },
     playlists: {},
+    favorites: getDefaultFavoritesState(),
   };
 }
 
@@ -130,6 +145,37 @@ export function getDefaultPlaylistState() {
 export function resetPlaylistStates() {
   const state = loadState();
   state.playlists = {};
+  saveState(state);
+}
+
+/**
+ * Load favorites-specific state
+ */
+export function loadFavoritesState() {
+  const state = loadState();
+
+  if (state.favorites) {
+    return state.favorites;
+  }
+
+  return getDefaultFavoritesState();
+}
+
+/**
+ * Save favorites-specific state
+ */
+export function saveFavoritesState(favoritesState) {
+  const state = loadState();
+  state.favorites = favoritesState;
+  saveState(state);
+}
+
+/**
+ * Reset favorites state
+ */
+export function resetFavoritesState() {
+  const state = loadState();
+  state.favorites = getDefaultFavoritesState();
   saveState(state);
 }
 

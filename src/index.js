@@ -2,9 +2,9 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { discordAuth, loadConfig, validateToken, ensureFreshToken } from './auth-discord.js';
-import { fetchGenerations, fetchAllPlaylists, fetchAllPlaylistTracks } from './api.js';
+import { fetchGenerations, fetchAllPlaylists, fetchAllPlaylistTracks, fetchAllFavorites } from './api.js';
 import { downloadTrackWithRetry } from './downloader.js';
-import { loadState, saveState, loadPlaylistState, savePlaylistState, cleanupDownloadingFiles } from './state.js';
+import { loadState, saveState, loadPlaylistState, savePlaylistState, cleanupDownloadingFiles, loadFavoritesState, saveFavoritesState } from './state.js';
 import { createPlaylistDirectory } from './utils.js';
 import { promptDownloadMode, promptPlaylistSelection, closeReadline } from './cli.js';
 import { collectMetadata, exportMetadata } from './metadata.js';
@@ -88,8 +88,10 @@ async function main() {
      // Execute download based on mode
     if (mode === 'all') {
       await downloadLibrary(config);
-    } else {
+    } else if (mode === 'playlists') {
       await downloadPlaylists(config, selectedPlaylists);
+    } else if (mode === 'favorites') {
+      await downloadFavorites(config);
     }
   } catch (error) {
     closeReadline();
@@ -376,6 +378,97 @@ async function downloadPlaylists(config, selectedPlaylists) {
   console.log(`\n📁 Files saved to: ${path.resolve(config.outputDir)}`);
 
   exportMetadata(config.outputDir, globalMetadata);
+}
+
+async function downloadFavorites(config) {
+  console.log('\n📋 Step 4: Download Favorites\n');
+
+  const favoritesDir = path.join(config.outputDir, 'favorites');
+  console.log(`📁 Directory: ${path.resolve(favoritesDir)}`);
+
+  if (!fs.existsSync(favoritesDir)) {
+    fs.mkdirSync(favoritesDir, { recursive: true });
+    console.log('   Created');
+  }
+
+  let favoritesState = loadFavoritesState();
+
+  console.log('\n📥 Fetching favorites...');
+  let favorites = [];
+  try {
+    favorites = await fetchAllFavorites(config.token);
+    console.log(`   Found ${favorites.length} favorites\n`);
+  } catch (error) {
+    console.error(`   Error fetching favorites: ${error.message}`);
+    return;
+  }
+
+  const stats = {
+    downloaded: 0,
+    skipped: 0,
+    failed: 0,
+  };
+
+  const metadata = [];
+
+  for (const favorite of favorites) {
+    try {
+      config = await ensureFreshToken(config, CONFIG_PATH);
+
+      const result = await downloadTrackWithRetry(
+        favorite,
+        config.token,
+        favoritesDir,
+        config.format,
+        {
+          maxRetries: 2,
+        }
+      );
+
+      metadata.push(collectMetadata(favorite, result, 'favorites'));
+
+      if (result.status === 'success') {
+        stats.downloaded++;
+        console.log(`✅ ${result.file}`);
+      } else if (result.status === 'skipped') {
+        stats.skipped++;
+        console.log(`⏭️  ${result.file}`);
+      } else if (result.status === 'failed') {
+        stats.failed++;
+        if (!favoritesState.failed) {
+          favoritesState.failed = [];
+        }
+        favoritesState.failed.push(favorite.id || favorite.riff_id || favorite.generation_id);
+        console.log(`❌ ${result.file} - ${result.message}`);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, config.downloadDelay || 500));
+    } catch (error) {
+      console.error(`   Error: ${error.message}`);
+      stats.failed++;
+      if (!favoritesState.failed) {
+        favoritesState.failed = [];
+      }
+      favoritesState.failed.push(favorite.id || favorite.riff_id || favorite.generation_id);
+    }
+  }
+
+  favoritesState.downloaded += stats.downloaded;
+  favoritesState.skipped += stats.skipped;
+  favoritesState.lastRun = new Date().toISOString();
+  saveFavoritesState(favoritesState);
+
+  exportMetadata(favoritesDir, metadata);
+
+  console.log('\n' + '='.repeat(60));
+  console.log('🎉 Favorites Download Complete!');
+  console.log('='.repeat(60));
+  console.log(`\nDownloaded: ${stats.downloaded}`);
+  console.log(`Skipped: ${stats.skipped}`);
+  console.log(`Failed: ${stats.failed}`);
+  console.log(`Total: ${stats.downloaded + stats.skipped + stats.failed}`);
+
+  console.log(`\n📁 Files saved to: ${path.resolve(favoritesDir)}`);
 }
 
 // Run main

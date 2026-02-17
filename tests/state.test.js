@@ -11,6 +11,10 @@ import {
   getDefaultPlaylistState,
   resetPlaylistStates,
   cleanupDownloadingFiles,
+  loadFavoritesState,
+  saveFavoritesState,
+  getDefaultFavoritesState,
+  resetFavoritesState,
 } from '../src/state.js';
 
 describe('State Management', () => {
@@ -241,6 +245,66 @@ describe('State Management', () => {
 
       const count = cleanupDownloadingFiles(downloadDir);
       expect(count).toBe(0);
+    });
+  });
+
+  describe('Favorites State', () => {
+    it('should load default favorites state when not exists', () => {
+      const favoritesState = loadFavoritesState();
+      expect(favoritesState).toHaveProperty('downloaded', 0);
+      expect(favoritesState).toHaveProperty('skipped', 0);
+      expect(favoritesState).toHaveProperty('failed');
+      expect(favoritesState).toHaveProperty('lastPage', 0);
+      expect(Array.isArray(favoritesState.failed)).toBe(true);
+    });
+
+    it('should save and load favorites state', () => {
+      const favoritesState = {
+        downloaded: 30,
+        skipped: 5,
+        failed: ['fav1', 'fav2'],
+        lastPage: 3,
+        lastRun: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      };
+
+      saveFavoritesState(favoritesState);
+
+      const loaded = loadFavoritesState();
+      expect(loaded.downloaded).toBe(30);
+      expect(loaded.skipped).toBe(5);
+      expect(loaded.failed).toEqual(['fav1', 'fav2']);
+      expect(loaded.lastPage).toBe(3);
+    });
+
+    it('should reset favorites state', () => {
+      const favoritesState = {
+        downloaded: 50,
+        skipped: 10,
+        failed: ['fav3'],
+        lastPage: 5,
+        lastRun: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      };
+      saveFavoritesState(favoritesState);
+
+      resetFavoritesState();
+
+      const loaded = loadFavoritesState();
+      expect(loaded.downloaded).toBe(0);
+      expect(loaded.skipped).toBe(0);
+      expect(loaded.failed).toEqual([]);
+      expect(loaded.lastPage).toBe(0);
+    });
+
+    it('should return default favorites state structure', () => {
+      const defaultState = getDefaultFavoritesState();
+      expect(defaultState).toHaveProperty('downloaded', 0);
+      expect(defaultState).toHaveProperty('skipped', 0);
+      expect(defaultState).toHaveProperty('failed');
+      expect(defaultState).toHaveProperty('lastPage', 0);
+      expect(defaultState).toHaveProperty('lastRun', null);
+      expect(defaultState).toHaveProperty('createdAt');
     });
   });
 });

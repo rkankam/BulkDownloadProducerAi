@@ -117,6 +117,54 @@ export async function fetchAllPlaylistTracks(token, playlistId) {
   return allTracks;
 }
 
+export async function fetchFavorites(token, page = 0, limit = 20) {
+  const url = `https://www.producer.ai/__api/v2/generations/favorites?page=${page}&limit=${limit}`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status} ${response.statusText}`);
+  }
+
+  return await response.json();
+}
+
+export async function fetchAllFavorites(token) {
+  let allFavorites = [];
+  let page = 0;
+  const limit = 20;
+  let hasMore = true;
+
+  while (hasMore) {
+    try {
+      const response = await fetchFavorites(token, page, limit);
+
+      // Response can be array directly or object with favorites property
+      const favorites = Array.isArray(response)
+        ? response
+        : (response.favorites || response.data || response.items || []);
+
+      if (favorites.length === 0) {
+        hasMore = false;
+      } else {
+        allFavorites = allFavorites.concat(favorites);
+        page++;
+      }
+    } catch (error) {
+      throw new Error(`Failed to fetch favorites: ${error.message}`);
+    }
+  }
+
+  return allFavorites;
+}
+
 export function getDownloadUrl(generationId, format = 'mp3') {
   return `https://www.producer.ai/__api/${generationId}/download?format=${format}`;
 }

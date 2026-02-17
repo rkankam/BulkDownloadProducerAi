@@ -14,16 +14,19 @@ export function promptDownloadMode() {
     console.log('Choose download mode:');
     console.log('  [1] Download entire library (all generations)');
     console.log('  [2] Select specific playlists');
+    console.log('  [3] Download favorites only');
     console.log();
 
     const askQuestion = () => {
-      rl.question('Enter choice (1 or 2): ', (choice) => {
+      rl.question('Enter choice (1, 2, or 3): ', (choice) => {
         if (choice === '1') {
           resolve('all');
         } else if (choice === '2') {
           resolve('playlists');
+        } else if (choice === '3') {
+          resolve('favorites');
         } else {
-          console.log('❌ Invalid choice. Please enter 1 or 2.\n');
+          console.log('❌ Invalid choice. Please enter 1, 2, or 3.\n');
           askQuestion();
         }
       });

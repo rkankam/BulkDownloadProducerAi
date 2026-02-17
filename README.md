@@ -5,9 +5,10 @@ Bulk download your music library and playlists from producer.ai with ease. This 
 ## Features
 
 - **Discord OAuth Authentication**: Securely log in using Playwright to automate the authentication flow.
-- **Two Download Modes**:
+- **Three Download Modes**:
   - **Library Mode**: Download every track you've generated.
   - **Playlist Mode**: Select specific playlists to download into organized subdirectories.
+  - **Favorites Mode**: Download only your favorited tracks into a dedicated 'favorites' folder.
 - **Resumable Downloads**: Progress is tracked in `download-state.json`, allowing you to resume after interruptions.
 - **Robust Error Handling**: Automatic retries for failed downloads and cleanup of incomplete files.
 - **Configurable**: Customize output directories and file formats.
@@ -41,8 +42,9 @@ On the first run, a browser window will open for you to log in via Discord. Once
 
 ### Download Modes
 
-- **All Generations**: Fetches and downloads every track in your library sequentially.
-- **Playlists**: Fetches your playlists and lets you select which ones to download. Each playlist is saved in its own folder within the output directory.
+- **All Generations (1)**: Fetches and downloads every track in your library sequentially.
+- **Playlists (2)**: Fetches your playlists and lets you select which ones to download. Each playlist is saved in its own folder within the output directory.
+- **Favorites (3)**: Downloads all your favorited tracks into a dedicated 'favorites' folder within the output directory.
 
 ## Configuration
 
@@ -74,6 +76,7 @@ The tool maintains progress in `download-state.json`. This file tracks:
 - Last processed offset for library downloads.
 - Lists of downloaded, skipped, and failed tracks.
 - Playlist-specific progress.
+- Favorites download progress.
 
 If a download fails or is stopped, simply run `npm start` again to pick up where you left off. To reset progress entirely, you can delete the `download-state.json` file.
 
