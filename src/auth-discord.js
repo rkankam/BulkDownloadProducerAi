@@ -171,24 +171,19 @@ async function extractTokenFromStorage(page) {
  * Fetch user ID from API or JWT token
  */
 async function fetchUserId(page, token) {
-  try {
-    console.log(`   [DEBUG] Token length: ${token?.length || 0}`);
-    console.log(`   [DEBUG] Token start: ${token?.substring(0, 20) || 'null'}...`);
-
-    // Try to extract from JWT token payload
-    const parts = token.split('.');
-    console.log(`   [DEBUG] JWT parts: ${parts.length}`);
+   try {
+     // Try to extract from JWT token payload
+     const parts = token.split('.');
 
     if (parts.length === 3) {
-      try {
-        // Handle base64url encoding (replace - with + and _ with /)
-        const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-        const payload = JSON.parse(Buffer.from(base64, 'base64').toString('utf-8'));
-        console.log(`   [DEBUG] Payload parsed, sub: ${payload.sub}`);
-        if (payload.sub) {
-          console.log(`   Found user ID in JWT: ${payload.sub}`);
-          return payload.sub;
-        }
+       try {
+         // Handle base64url encoding (replace - with + and _ with /)
+         const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+         const payload = JSON.parse(Buffer.from(base64, 'base64').toString('utf-8'));
+         if (payload.sub) {
+           console.log(`   Found user ID in JWT: ${payload.sub}`);
+           return payload.sub;
+         }
       } catch (e) {
         console.log(`   JWT parsing error: ${e.message}`);
         // If JWT parsing fails, continue to API calls

@@ -209,17 +209,18 @@ async function downloadLibrary(config) {
 
   console.log(`\n📁 Files saved to: ${path.resolve(config.outputDir)}`);
 
-  // Reset state on complete success
-  if (stats.failed === 0 && !hasMore) {
-    console.log('✅ All tracks downloaded successfully!');
-    libState.lastOffset = 0;
-    libState.downloaded = 0;
-    libState.skipped = 0;
-    libState.failed = [];
-    state.library = libState;
-    saveState(state);
-    console.log('   Progress reset for next sync');
-  }
+   // Reset state on complete success
+   if (stats.failed === 0 && !hasMore) {
+     console.log('✅ All tracks downloaded successfully!');
+     libState.lastOffset = 0;
+     libState.downloaded = 0;
+     libState.skipped = 0;
+     libState.failed = [];
+     libState.lastCompletedAt = new Date().toISOString();
+     state.library = libState;
+     saveState(state);
+     console.log('   Progress reset for next sync');
+   }
 }
 
 /**
@@ -262,17 +263,14 @@ async function downloadPlaylists(config, selectedPlaylists) {
       continue;
     }
 
-    // Download tracks
-    const playlistStats = {
-      downloaded: playlistState.downloaded || 0,
-      skipped: playlistState.skipped || 0,
-      failed: playlistState.failed ? playlistState.failed.length : 0,
-    };
+     // Download tracks
+     const playlistStats = {
+       downloaded: 0,
+       skipped: 0,
+       failed: 0,
+     };
 
-    // Debug: log first track structure
-    if (tracks.length > 0) {
-      console.log(`   [DEBUG] First track structure: ${JSON.stringify(tracks[0]).substring(0, 300)}...`);
-    }
+
 
     for (const track of tracks) {
       try {

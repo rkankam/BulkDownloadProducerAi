@@ -109,14 +109,14 @@ export async function downloadTrackWithRetry(
     try {
       return await downloadTrack(generation, token, outputDir, format);
     } catch (error) {
-      if (attempt === maxRetries) {
-        return {
-          status: 'failed',
-          file: generation.title,
-          message: error.message,
-          error: error,
-        };
-      }
+       if (attempt === maxRetries) {
+         return {
+           status: 'failed',
+           file: generation.title || generation.name || generation.riff_id || 'unknown',
+           message: error.message,
+           error: error,
+         };
+       }
 
       const waitTime = 1000 * attempt; // Exponential backoff
       console.log(
