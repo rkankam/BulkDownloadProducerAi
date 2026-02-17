@@ -75,11 +75,15 @@ async function main() {
       console.log('   Exists');
     }
 
-    // Cleanup orphaned .downloading files
-    console.log('\n🧹 Cleaning up orphaned .downloading files');
-    cleanupDownloadingFiles(config.outputDir);
+     // Cleanup orphaned .downloading files
+     console.log('\n🧹 Cleaning up orphaned .downloading files');
+     cleanupDownloadingFiles(config.outputDir);
 
-    // Execute download based on mode
+     // Show download delay configuration
+     const downloadDelay = config.downloadDelay || 500;
+     console.log(`\n⏱️ Download delay: ${downloadDelay}ms`);
+
+     // Execute download based on mode
     if (mode === 'all') {
       await downloadLibrary(config);
     } else {
@@ -158,13 +162,16 @@ async function downloadLibrary(config) {
           } else if (result.status === 'skipped') {
             stats.skipped++;
             console.log(`⏭️  ${result.file}`);
-          } else if (result.status === 'failed') {
-            stats.failed++;
-            libState.failed.push(generation.id);
-            console.log(`❌ ${result.file} - ${result.message}`);
-          }
+           } else if (result.status === 'failed') {
+             stats.failed++;
+             libState.failed.push(generation.id);
+             console.log(`❌ ${result.file} - ${result.message}`);
+           }
 
-          // Save state every 10 tracks
+           // Apply rate limiting delay between downloads
+           await new Promise(resolve => setTimeout(resolve, config.downloadDelay || 500));
+
+           // Save state every 10 tracks
           if (totalProcessed % 10 === 0) {
             libState.lastOffset = offset;
             libState.downloaded = stats.downloaded;
@@ -290,23 +297,26 @@ async function downloadPlaylists(config, selectedPlaylists) {
         } else if (result.status === 'skipped') {
           playlistStats.skipped++;
           console.log(`⏭️  ${result.file}`);
-        } else if (result.status === 'failed') {
-          playlistStats.failed++;
-          if (!playlistState.failed) {
-            playlistState.failed = [];
-          }
-          playlistState.failed.push(track.id);
-          console.log(`❌ ${result.file} - ${result.message}`);
-        }
-      } catch (error) {
-        console.error(`   Error: ${error.message}`);
-        playlistStats.failed++;
-        if (!playlistState.failed) {
-          playlistState.failed = [];
-        }
-        playlistState.failed.push(track.id);
-      }
-    }
+         } else if (result.status === 'failed') {
+           playlistStats.failed++;
+           if (!playlistState.failed) {
+             playlistState.failed = [];
+           }
+           playlistState.failed.push(track.id);
+           console.log(`❌ ${result.file} - ${result.message}`);
+         }
+
+         // Apply rate limiting delay between downloads
+         await new Promise(resolve => setTimeout(resolve, config.downloadDelay || 500));
+       } catch (error) {
+         console.error(`   Error: ${error.message}`);
+         playlistStats.failed++;
+         if (!playlistState.failed) {
+           playlistState.failed = [];
+         }
+         playlistState.failed.push(track.id);
+       }
+     }
 
     // Save playlist state
     playlistState.downloaded = playlistStats.downloaded;
