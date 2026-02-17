@@ -9,6 +9,8 @@ Bulk download your music library and playlists from producer.ai with ease. This 
   - **Library Mode**: Download every track you've generated.
   - **Playlist Mode**: Select specific playlists to download into organized subdirectories.
   - **Favorites Mode**: Download only your favorited tracks into a dedicated 'favorites' folder.
+- **Multiple Audio Formats**: Choose between MP3 (compact) or WAV (high quality) output.
+- **Full Metadata Export**: Each track gets a JSON file with complete API response data, plus a global `_index.json` for searching.
 - **Resumable Downloads**: Progress is tracked in `download-state.json`, allowing you to resume after interruptions.
 - **Robust Error Handling**: Automatic retries for failed downloads and cleanup of incomplete files.
 - **Configurable**: Customize output directories and file formats.
@@ -38,13 +40,18 @@ Start the application by running:
 npm start
 ```
 
-On the first run, a browser window will open for you to log in via Discord. Once authenticated, the tool will save your session and prompt you to choose a download mode.
+On the first run, a browser window will open for you to log in via Discord. Once authenticated, the tool will save your session and prompt you to choose a download mode and audio format.
 
 ### Download Modes
 
 - **All Generations (1)**: Fetches and downloads every track in your library sequentially.
 - **Playlists (2)**: Fetches your playlists and lets you select which ones to download. Each playlist is saved in its own folder within the output directory.
 - **Favorites (3)**: Downloads all your favorited tracks into a dedicated 'favorites' folder within the output directory.
+
+### Audio Formats
+
+- **MP3 (1)**: Compressed format, ~3MB per track. Recommended for most users.
+- **WAV (2)**: Uncompressed high quality, ~30MB per track. For audio production or archival.
 
 ## Configuration
 
@@ -67,7 +74,7 @@ Example `config.json`:
 - `token`: The JWT session token from producer.ai.
 - `userId`: Your unique user identifier.
 - `outputDir`: Where the music files will be saved.
-- `format`: The desired file format (currently supports `mp3`).
+- `format`: The desired file format (`mp3` or `wav`).
 - `authMethod`: The authentication provider (default is `discord`).
 
 ## State Management
@@ -79,6 +86,30 @@ The tool maintains progress in `download-state.json`. This file tracks:
 - Favorites download progress.
 
 If a download fails or is stopped, simply run `npm start` again to pick up where you left off. To reset progress entirely, you can delete the `download-state.json` file.
+
+## Metadata Export
+
+Each downloaded track includes comprehensive metadata:
+
+### Per-Track Metadata
+Each `.mp3` or `.wav` file has a corresponding `.json` file containing:
+- `_meta`: Download metadata (timestamp, file size, duration, status)
+- `apiResponse`: Complete API response with all track details (title, lyrics, generation parameters, etc.)
+
+### Global Index
+Each directory also contains an `_index.json` file with:
+- Summary statistics (track count, total duration)
+- Array of all tracks' metadata for fast searching
+
+Example structure:
+```
+downloads/favorites/
+├── Track Title_uuid.mp3
+├── Track Title_uuid.json
+├── Another Track_uuid.mp3
+├── Another Track_uuid.json
+└── _index.json
+```
 
 ## Troubleshooting
 

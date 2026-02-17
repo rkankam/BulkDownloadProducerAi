@@ -6,8 +6,8 @@ import { fetchGenerations, fetchAllPlaylists, fetchAllPlaylistTracks, fetchAllFa
 import { downloadTrackWithRetry } from './downloader.js';
 import { loadState, saveState, loadPlaylistState, savePlaylistState, cleanupDownloadingFiles, loadFavoritesState, saveFavoritesState } from './state.js';
 import { createPlaylistDirectory } from './utils.js';
-import { promptDownloadMode, promptPlaylistSelection, closeReadline } from './cli.js';
-import { collectMetadata, exportMetadata } from './metadata.js';
+import { promptDownloadMode, promptPlaylistSelection, promptFormatSelection, closeReadline } from './cli.js';
+import { collectMetadata, exportMetadata, exportTrackMetadata, rebuildGlobalIndex } from './metadata.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = path.join(process.cwd(), 'config.json');
@@ -52,6 +52,11 @@ async function main() {
     // Step 2.5: Download mode selection
     console.log('\n📋 Step 2.5: Download Mode Selection\n');
     const mode = await promptDownloadMode();
+
+    // Step 2.6: Format selection
+    console.log('\n📋 Step 2.6: Format Selection\n');
+    config.format = await promptFormatSelection();
+    console.log(`\n✅ Format: ${config.format.toUpperCase()}`);
 
     let selectedPlaylists = [];
     if (mode === 'playlists') {
@@ -125,8 +130,6 @@ async function downloadLibrary(config) {
     failed: libState.failed.length,
   };
 
-  const metadata = [];
-
   let offset = libState.lastOffset;
   const limit = 20;
   let hasMore = true;
@@ -164,7 +167,7 @@ async function downloadLibrary(config) {
 
           totalProcessed++;
 
-          metadata.push(collectMetadata(generation, result));
+          await exportTrackMetadata(config.outputDir, generation, result);
 
           if (result.status === 'success') {
             stats.downloaded++;
@@ -226,7 +229,7 @@ async function downloadLibrary(config) {
 
   console.log(`\n📁 Files saved to: ${path.resolve(config.outputDir)}`);
 
-  exportMetadata(config.outputDir, metadata);
+  await rebuildGlobalIndex(config.outputDir);
 
    // Reset state on complete success
    if (stats.failed === 0 && !hasMore) {
@@ -249,7 +252,6 @@ async function downloadPlaylists(config, selectedPlaylists) {
   console.log('\n📋 Step 4: Download Playlists\n');
 
   const globalStats = [];
-  const globalMetadata = [];
   let globalDownloaded = 0;
   let globalSkipped = 0;
   let globalFailed = 0;
@@ -307,7 +309,7 @@ async function downloadPlaylists(config, selectedPlaylists) {
           }
         );
 
-        globalMetadata.push(collectMetadata(track, result, playlist.name));
+        await exportTrackMetadata(playlistDir, track, result, playlist.name);
 
         if (result.status === 'success') {
           playlistStats.downloaded++;
@@ -357,6 +359,8 @@ async function downloadPlaylists(config, selectedPlaylists) {
     globalDownloaded += playlistStats.downloaded;
     globalSkipped += playlistStats.skipped;
     globalFailed += playlistStats.failed;
+
+    await rebuildGlobalIndex(playlistDir);
   }
 
   // Final summary
@@ -376,8 +380,6 @@ async function downloadPlaylists(config, selectedPlaylists) {
   console.log(`   Grand Total: ${globalDownloaded + globalSkipped + globalFailed}`);
 
   console.log(`\n📁 Files saved to: ${path.resolve(config.outputDir)}`);
-
-  exportMetadata(config.outputDir, globalMetadata);
 }
 
 async function downloadFavorites(config) {
@@ -409,8 +411,6 @@ async function downloadFavorites(config) {
     failed: 0,
   };
 
-  const metadata = [];
-
   for (const favorite of favorites) {
     try {
       config = await ensureFreshToken(config, CONFIG_PATH);
@@ -425,7 +425,7 @@ async function downloadFavorites(config) {
         }
       );
 
-      metadata.push(collectMetadata(favorite, result, 'favorites'));
+      await exportTrackMetadata(favoritesDir, favorite, result, 'favorites');
 
       if (result.status === 'success') {
         stats.downloaded++;
@@ -458,7 +458,7 @@ async function downloadFavorites(config) {
   favoritesState.lastRun = new Date().toISOString();
   saveFavoritesState(favoritesState);
 
-  exportMetadata(favoritesDir, metadata);
+  await rebuildGlobalIndex(favoritesDir);
 
   console.log('\n' + '='.repeat(60));
   console.log('🎉 Favorites Download Complete!');

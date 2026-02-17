@@ -8,3 +8,7 @@ downloads/
 .env
 .env.local
 package-lock.json
+_bmad/
+_bmad-output/
+.claude/
+.sisyphus/

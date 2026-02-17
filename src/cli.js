@@ -4,6 +4,36 @@ import { stdin as input, stdout as output } from 'process';
 const rl = readline.createInterface({ input, output });
 
 /**
+ * Display menu and get user's choice for audio format
+ */
+export function promptFormatSelection() {
+  return new Promise((resolve) => {
+    console.log('========================================');
+    console.log('  Audio Format Selection');
+    console.log('========================================\n');
+    console.log('Choose output format:');
+    console.log('  [1] MP3 (recommended - ~3MB per track)');
+    console.log('  [2] WAV (high quality - ~30MB per track)');
+    console.log();
+
+    const askQuestion = () => {
+      rl.question('Enter choice (1 or 2): ', (choice) => {
+        if (choice === '1') {
+          resolve('mp3');
+        } else if (choice === '2') {
+          resolve('wav');
+        } else {
+          console.log('❌ Invalid choice. Please enter 1 or 2.\n');
+          askQuestion();
+        }
+      });
+    };
+
+    askQuestion();
+  });
+}
+
+/**
  * Display menu and get user's choice for download mode
  */
 export function promptDownloadMode() {
