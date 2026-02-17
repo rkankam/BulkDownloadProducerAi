@@ -7,6 +7,7 @@ import { downloadTrackWithRetry } from './downloader.js';
 import { loadState, saveState, loadPlaylistState, savePlaylistState, cleanupDownloadingFiles } from './state.js';
 import { createPlaylistDirectory } from './utils.js';
 import { promptDownloadMode, promptPlaylistSelection, closeReadline } from './cli.js';
+import { collectMetadata, exportMetadata } from './metadata.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = path.join(process.cwd(), 'config.json');
@@ -122,6 +123,8 @@ async function downloadLibrary(config) {
     failed: libState.failed.length,
   };
 
+  const metadata = [];
+
   let offset = libState.lastOffset;
   const limit = 20;
   let hasMore = true;
@@ -158,6 +161,8 @@ async function downloadLibrary(config) {
           );
 
           totalProcessed++;
+
+          metadata.push(collectMetadata(generation, result));
 
           if (result.status === 'success') {
             stats.downloaded++;
@@ -219,6 +224,8 @@ async function downloadLibrary(config) {
 
   console.log(`\n📁 Files saved to: ${path.resolve(config.outputDir)}`);
 
+  exportMetadata(config.outputDir, metadata);
+
    // Reset state on complete success
    if (stats.failed === 0 && !hasMore) {
      console.log('✅ All tracks downloaded successfully!');
@@ -240,6 +247,7 @@ async function downloadPlaylists(config, selectedPlaylists) {
   console.log('\n📋 Step 4: Download Playlists\n');
 
   const globalStats = [];
+  const globalMetadata = [];
   let globalDownloaded = 0;
   let globalSkipped = 0;
   let globalFailed = 0;
@@ -296,6 +304,8 @@ async function downloadPlaylists(config, selectedPlaylists) {
             maxRetries: 2,
           }
         );
+
+        globalMetadata.push(collectMetadata(track, result, playlist.name));
 
         if (result.status === 'success') {
           playlistStats.downloaded++;
@@ -364,6 +374,8 @@ async function downloadPlaylists(config, selectedPlaylists) {
   console.log(`   Grand Total: ${globalDownloaded + globalSkipped + globalFailed}`);
 
   console.log(`\n📁 Files saved to: ${path.resolve(config.outputDir)}`);
+
+  exportMetadata(config.outputDir, globalMetadata);
 }
 
 // Run main
