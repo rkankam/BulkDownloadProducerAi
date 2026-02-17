@@ -1,14 +1,20 @@
-audio/
+# Dependencies
 node_modules/
+
+# User data
+audio/
 config.json
 download-state.json
 downloads/
-*.log
-.DS_Store
+
+# Environment
 .env
 .env.local
-package-lock.json
-_bmad/
-_bmad-output/
+*.log
+.DS_Store
+
+# IDE/Tools
 .claude/
 .sisyphus/
+_bmad/
+_bmad-output/
