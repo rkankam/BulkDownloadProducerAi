@@ -148,9 +148,236 @@ export async function rebuildGlobalIndex(outputDir) {
   }
 }
 
-// ============================================================================
-// LEGACY FUNCTIONS (Deprecated - kept for backward compatibility during migration)
-// ============================================================================
+const MIN_FILE_SIZES = {
+  mp3: 100 * 1024,
+  wav: 500 * 1024
+};
+
+export function verifyTrackIntegrity(outputDir, track) {
+  let filename = track.filename;
+  const trackId = track.id;
+  
+  if (!filename) {
+    return {
+      status: 'no_filename',
+      action: 'skip',
+      filePath: null,
+      jsonPath: null,
+      fileSize: null,
+      track: track
+    };
+  }
+  
+  const ext = path.extname(filename).toLowerCase().replace('.', '');
+  let filePath = path.join(outputDir, filename);
+  let foundExt = ext;
+  
+  if (!ext || !fs.existsSync(filePath)) {
+    const baseName = filename.replace(/\.(mp3|wav)$/i, '');
+    
+    for (const tryExt of ['wav', 'mp3']) {
+      const tryPath = path.join(outputDir, `${baseName}.${tryExt}`);
+      if (fs.existsSync(tryPath)) {
+        filePath = tryPath;
+        foundExt = tryExt;
+        break;
+      }
+    }
+    
+    if (trackId && !fs.existsSync(filePath)) {
+      const files = fs.readdirSync(outputDir);
+      const idPattern = new RegExp(`_${trackId}\\.(mp3|wav)$`, 'i');
+      const matchedFile = files.find(f => idPattern.test(f));
+      if (matchedFile) {
+        filePath = path.join(outputDir, matchedFile);
+        foundExt = path.extname(matchedFile).toLowerCase().replace('.', '');
+      }
+    }
+  }
+  
+  const jsonPath = filePath.replace(/\.(mp3|wav)$/i, '.json');
+  
+  if (!fs.existsSync(filePath)) {
+    return {
+      status: 'missing',
+      action: 'download',
+      filePath,
+      jsonPath,
+      fileSize: null,
+      track: track
+    };
+  }
+  
+  const stats = fs.statSync(filePath);
+  const minSize = MIN_FILE_SIZES[foundExt] || 0;
+  
+  if (stats.size === 0 || stats.size < minSize) {
+    return {
+      status: 'empty',
+      action: 'download',
+      filePath,
+      jsonPath,
+      fileSize: stats.size,
+      track: track
+    };
+  }
+  
+  if (!fs.existsSync(jsonPath)) {
+    return {
+      status: 'missing_json',
+      action: 'export_metadata_only',
+      filePath,
+      jsonPath,
+      fileSize: stats.size,
+      track: track
+    };
+  }
+  
+  return {
+    status: 'ok',
+    action: 'none',
+    filePath,
+    jsonPath,
+    fileSize: stats.size,
+    track: track
+  };
+}
+
+export function scanIntegrityIssues(baseDir) {
+  const results = {
+    byDirectory: {},
+    summary: {
+      totalIssues: 0,
+      needDownload: 0,
+      needMetadataOnly: 0,
+      orphans: 0
+    }
+  };
+  
+  if (!fs.existsSync(baseDir)) {
+    return results;
+  }
+  
+  const directories = findAllIndexDirectories(baseDir);
+  
+  for (const dir of directories) {
+    const indexPath = path.join(dir, '_index.json');
+    
+    if (!fs.existsSync(indexPath)) {
+      continue;
+    }
+    
+    const dirRelative = path.relative(baseDir, dir) || path.basename(dir);
+    const issues = {
+      missing: [],
+      empty: [],
+      missingJson: [],
+      orphanFiles: []
+    };
+    
+    let indexContent;
+    try {
+      indexContent = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+    } catch {
+      continue;
+    }
+    
+    const tracks = indexContent.tracks || [];
+    const indexedFiles = new Set();
+    
+    for (const track of tracks) {
+      const integrity = verifyTrackIntegrity(dir, track);
+      indexedFiles.add(track.filename);
+      
+      if (integrity.status === 'missing') {
+        issues.missing.push({ ...track, ...integrity });
+        results.summary.needDownload++;
+        results.summary.totalIssues++;
+      } else if (integrity.status === 'empty') {
+        issues.empty.push({ ...track, ...integrity });
+        results.summary.needDownload++;
+        results.summary.totalIssues++;
+      } else if (integrity.status === 'missing_json') {
+        issues.missingJson.push({ ...track, ...integrity });
+        results.summary.needMetadataOnly++;
+        results.summary.totalIssues++;
+      }
+    }
+    
+    const audioFiles = fs.readdirSync(dir).filter(f => 
+      f.endsWith('.mp3') || f.endsWith('.wav')
+    );
+    
+    for (const audioFile of audioFiles) {
+      if (!indexedFiles.has(audioFile)) {
+        issues.orphanFiles.push({
+          filename: audioFile,
+          filePath: path.join(dir, audioFile)
+        });
+        results.summary.orphans++;
+        results.summary.totalIssues++;
+      }
+    }
+    
+    const hasIssues = issues.missing.length > 0 || 
+                      issues.empty.length > 0 || 
+                      issues.missingJson.length > 0 || 
+                      issues.orphanFiles.length > 0;
+    
+    if (hasIssues) {
+      results.byDirectory[dirRelative] = issues;
+    }
+  }
+  
+  return results;
+}
+
+function findAllIndexDirectories(baseDir) {
+  const directories = [];
+  
+  function scan(dir) {
+    const indexPath = path.join(dir, '_index.json');
+    if (fs.existsSync(indexPath)) {
+      directories.push(dir);
+    }
+    
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const subDir = path.join(dir, entry.name);
+        scan(subDir);
+      }
+    }
+  }
+  
+  if (fs.existsSync(baseDir)) {
+    scan(baseDir);
+  }
+  
+  return directories;
+}
+
+export function updateTrackMetadata(outputDir, trackId, newStatus) {
+  const files = fs.readdirSync(outputDir);
+  const trackFiles = files.filter(f => f.endsWith('.json') && f !== '_index.json');
+  
+  for (const file of trackFiles) {
+    const filePath = path.join(outputDir, file);
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const metadata = JSON.parse(content);
+      
+      if (metadata.apiResponse?.id === trackId) {
+        metadata._meta.downloadStatus = newStatus;
+        metadata._meta.exportedAt = new Date().toISOString();
+        fs.writeFileSync(filePath, JSON.stringify(metadata, null, 2));
+        return filePath;
+      }
+    } catch {}
+  }
+  
+  return null;
+}
 
 /**
  * @deprecated Use exportTrackMetadata() instead

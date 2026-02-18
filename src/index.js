@@ -2,12 +2,12 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { discordAuth, loadConfig, validateToken, ensureFreshToken } from './auth-discord.js';
-import { fetchGenerations, fetchAllPlaylists, fetchAllPlaylistTracks, fetchAllFavorites } from './api.js';
+import { fetchGenerations, fetchAllPlaylists, fetchAllPlaylistTracks, fetchAllFavorites, fetchTrackById } from './api.js';
 import { downloadTrackWithRetry } from './downloader.js';
 import { loadState, saveState, loadPlaylistState, savePlaylistState, cleanupDownloadingFiles, loadFavoritesState, saveFavoritesState } from './state.js';
 import { createPlaylistDirectory } from './utils.js';
 import { promptDownloadMode, promptPlaylistSelection, promptFormatSelection, closeReadline } from './cli.js';
-import { collectMetadata, exportMetadata, exportTrackMetadata, rebuildGlobalIndex } from './metadata.js';
+import { collectMetadata, exportMetadata, exportTrackMetadata, rebuildGlobalIndex, scanIntegrityIssues, updateTrackMetadata } from './metadata.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = path.join(process.cwd(), 'config.json');
@@ -53,10 +53,12 @@ async function main() {
     console.log('\n📋 Step 2.5: Download Mode Selection\n');
     const mode = await promptDownloadMode();
 
-    // Step 2.6: Format selection
-    console.log('\n📋 Step 2.6: Format Selection\n');
-    config.format = await promptFormatSelection();
-    console.log(`\n✅ Format: ${config.format.toUpperCase()}`);
+    // Step 2.6: Format selection (skip for repair mode)
+    if (mode !== 'repair') {
+      console.log('\n📋 Step 2.6: Format Selection\n');
+      config.format = await promptFormatSelection();
+      console.log(`\n✅ Format: ${config.format.toUpperCase()}`);
+    }
 
     let selectedPlaylists = [];
     if (mode === 'playlists') {
@@ -97,6 +99,8 @@ async function main() {
       await downloadPlaylists(config, selectedPlaylists);
     } else if (mode === 'favorites') {
       await downloadFavorites(config);
+    } else if (mode === 'repair') {
+      await repairDownloads(config);
     }
   } catch (error) {
     closeReadline();
@@ -379,6 +383,191 @@ async function downloadPlaylists(config, selectedPlaylists) {
   console.log(`   Total Failed: ${globalFailed}`);
   console.log(`   Grand Total: ${globalDownloaded + globalSkipped + globalFailed}`);
 
+  console.log(`\n📁 Files saved to: ${path.resolve(config.outputDir)}`);
+}
+
+async function repairDownloads(config) {
+  console.log('\n📋 Step 4: Verify & Repair Downloads\n');
+
+  console.log('🔍 Scanning for integrity issues...\n');
+
+  const issues = scanIntegrityIssues(config.outputDir);
+
+  if (issues.summary.totalIssues === 0) {
+    console.log('✅ All downloads verified. No issues found.\n');
+    return;
+  }
+
+  console.log('═'.repeat(60));
+  console.log('📊 Issues Found');
+  console.log('═'.repeat(60));
+  console.log(`   Missing files:        ${issues.summary.needDownload}`);
+  console.log(`   Missing metadata:     ${issues.summary.needMetadataOnly}`);
+  console.log(`   Orphan files:         ${issues.summary.orphans}`);
+  console.log(`   Total issues:         ${issues.summary.totalIssues}\n`);
+
+  const stats = {
+    repaired: 0,
+    metadataFixed: 0,
+    orphansRecovered: 0,
+    failed: 0
+  };
+
+  const repairedDirs = new Set();
+
+  for (const [dirName, dirIssues] of Object.entries(issues.byDirectory)) {
+    const fullDir = path.join(config.outputDir, dirName);
+    console.log(`\n📂 Processing: ${dirName || 'downloads'}`);
+
+    for (const track of dirIssues.missing) {
+      try {
+        config = await ensureFreshToken(config, CONFIG_PATH);
+        console.log(`   ⬇️  Re-downloading: ${track.title || track.id}`);
+
+        const trackData = track.track || { id: track.id, title: track.title };
+        const result = await downloadTrackWithRetry(
+          trackData,
+          config.token,
+          fullDir,
+          config.format,
+          { maxRetries: 2 }
+        );
+
+        if (result.status === 'success' || result.status === 'skipped') {
+          if (trackData.id) {
+            await exportTrackMetadata(fullDir, trackData, result);
+          }
+          stats.repaired++;
+          repairedDirs.add(fullDir);
+          console.log(`      ✅ Repaired`);
+        } else {
+          stats.failed++;
+          console.log(`      ❌ Failed: ${result.message}`);
+        }
+
+        await new Promise(resolve => setTimeout(resolve, config.downloadDelay || 500));
+      } catch (error) {
+        stats.failed++;
+        console.log(`      ❌ Error: ${error.message}`);
+      }
+    }
+
+    for (const track of dirIssues.empty) {
+      try {
+        config = await ensureFreshToken(config, CONFIG_PATH);
+        console.log(`   🔄 Replacing empty: ${track.title || track.id}`);
+
+        if (track.filePath && fs.existsSync(track.filePath)) {
+          fs.unlinkSync(track.filePath);
+        }
+
+        const trackData = track.track || { id: track.id, title: track.title };
+        const result = await downloadTrackWithRetry(
+          trackData,
+          config.token,
+          fullDir,
+          config.format,
+          { maxRetries: 2 }
+        );
+
+        if (result.status === 'success') {
+          if (trackData.id) {
+            await exportTrackMetadata(fullDir, trackData, result);
+          }
+          stats.repaired++;
+          repairedDirs.add(fullDir);
+          console.log(`      ✅ Replaced`);
+        } else {
+          stats.failed++;
+          console.log(`      ❌ Failed: ${result.message}`);
+        }
+
+        await new Promise(resolve => setTimeout(resolve, config.downloadDelay || 500));
+      } catch (error) {
+        stats.failed++;
+        console.log(`      ❌ Error: ${error.message}`);
+      }
+    }
+
+    for (const track of dirIssues.missingJson) {
+      try {
+        config = await ensureFreshToken(config, CONFIG_PATH);
+        console.log(`   📄 Creating metadata: ${track.title || track.id}`);
+
+        const trackId = track.id;
+        let trackData = track.track || { id: trackId, title: track.title };
+
+        try {
+          trackData = await fetchTrackById(config.token, trackId);
+        } catch (apiError) {
+          console.log(`      ⚠️  Could not fetch API data, using cached info`);
+        }
+
+        const ext = path.extname(track.filePath || '').toLowerCase().replace('.', '') || config.format;
+        const result = {
+          file: track.filename,
+          filePath: track.filePath,
+          status: 'success'
+        };
+
+        await exportTrackMetadata(fullDir, trackData, result);
+        stats.metadataFixed++;
+        repairedDirs.add(fullDir);
+        console.log(`      ✅ Metadata created`);
+      } catch (error) {
+        stats.failed++;
+        console.log(`      ❌ Error: ${error.message}`);
+      }
+    }
+
+    for (const orphan of dirIssues.orphanFiles) {
+      try {
+        config = await ensureFreshToken(config, CONFIG_PATH);
+        const filename = orphan.filename;
+        console.log(`   🔗 Recovering orphan: ${filename}`);
+
+        const uuidMatch = filename.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+        if (!uuidMatch) {
+          console.log(`      ⚠️  Could not extract track ID from filename`);
+          continue;
+        }
+
+        const trackId = uuidMatch[1];
+
+        try {
+          const trackData = await fetchTrackById(config.token, trackId);
+          const result = {
+            file: filename,
+            filePath: orphan.filePath,
+            status: 'success'
+          };
+
+          await exportTrackMetadata(fullDir, trackData, result);
+          stats.orphansRecovered++;
+          repairedDirs.add(fullDir);
+          console.log(`      ✅ Metadata recovered`);
+        } catch (apiError) {
+          console.log(`      ⚠️  Track not found in API (may have been deleted)`);
+        }
+      } catch (error) {
+        stats.failed++;
+        console.log(`      ❌ Error: ${error.message}`);
+      }
+    }
+  }
+
+  console.log('\n🔄 Rebuilding index files...');
+  for (const dir of repairedDirs) {
+    await rebuildGlobalIndex(dir);
+  }
+
+  console.log('\n' + '='.repeat(60));
+  console.log('🎉 Repair Complete!');
+  console.log('='.repeat(60));
+  console.log(`\n✅ Files repaired:      ${stats.repaired}`);
+  console.log(`📄 Metadata fixed:     ${stats.metadataFixed}`);
+  console.log(`🔗 Orphans recovered:  ${stats.orphansRecovered}`);
+  console.log(`❌ Failed:             ${stats.failed}`);
   console.log(`\n📁 Files saved to: ${path.resolve(config.outputDir)}`);
 }
 

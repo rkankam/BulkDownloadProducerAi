@@ -2,6 +2,25 @@
  * Producer.ai API Communication
  */
 
+export async function fetchTrackById(token, trackId) {
+  const url = `https://www.producer.ai/__api/v2/generations/${trackId}`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status} ${response.statusText}`);
+  }
+
+  return await response.json();
+}
+
 export async function fetchGenerations(token, userId, offset = 0, limit = 20) {
   const url = `https://www.producer.ai/__api/v2/users/${userId}/generations?offset=${offset}&limit=${limit}`;
 
