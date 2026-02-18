@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { verifyTrackIntegrity, scanIntegrityIssues, updateTrackMetadata, rebuildGlobalIndex } from '../src/metadata.js';
+import { verifyTrackIntegrity, scanIntegrityIssues, updateTrackMetadata, rebuildGlobalIndex, syncAllStatuses } from '../src/metadata.js';
 
 describe('Integrity Verification', () => {
   let tempDir;
@@ -242,6 +242,86 @@ describe('Integrity Verification', () => {
     it('should return null if track not found', () => {
       const result = updateTrackMetadata(tempDir, 'nonexistent', 'success');
       expect(result).toBeNull();
+    });
+  });
+
+  describe('syncAllStatuses', () => {
+    it('should correct failed status when file exists', async () => {
+      const jsonFile = path.join(tempDir, 'Sync Track_sync-1.json');
+      const audioFile = path.join(tempDir, 'Sync Track_sync-1.mp3');
+
+      fs.writeFileSync(audioFile, 'x'.repeat(200 * 1024));
+      fs.writeFileSync(jsonFile, JSON.stringify({
+        _meta: { downloadStatus: 'failed', filename: 'Sync Track_sync-1.mp3', exportedAt: '2026-01-01T00:00:00.000Z' },
+        apiResponse: { id: 'sync-1', title: 'Sync Track' }
+      }));
+
+      const indexFile = path.join(tempDir, '_index.json');
+      fs.writeFileSync(indexFile, JSON.stringify({
+        _meta: { trackCount: 1, totalDuration: 0, directory: 'test' },
+        tracks: [{ id: 'sync-1', title: 'Sync Track', filename: 'Sync Track_sync-1.mp3', status: 'failed' }]
+      }));
+
+      const results = await syncAllStatuses(tempDir);
+
+      expect(results.totalCorrections).toBe(1);
+
+      const content = JSON.parse(fs.readFileSync(jsonFile, 'utf-8'));
+      expect(content._meta.downloadStatus).toBe('success');
+
+      const index = JSON.parse(fs.readFileSync(indexFile, 'utf-8'));
+      expect(index.tracks[0].status).toBe('success');
+    });
+
+    it('should not change status when file is missing', async () => {
+      const jsonFile = path.join(tempDir, 'Missing_sync-2.json');
+
+      fs.writeFileSync(jsonFile, JSON.stringify({
+        _meta: { downloadStatus: 'failed', filename: 'Missing_sync-2.mp3', exportedAt: '2026-01-01T00:00:00.000Z' },
+        apiResponse: { id: 'sync-2', title: 'Missing Track' }
+      }));
+
+      const indexFile = path.join(tempDir, '_index.json');
+      fs.writeFileSync(indexFile, JSON.stringify({
+        _meta: { trackCount: 1, totalDuration: 0, directory: 'test' },
+        tracks: [{ id: 'sync-2', title: 'Missing Track', filename: 'Missing_sync-2.mp3', status: 'failed' }]
+      }));
+
+      const results = await syncAllStatuses(tempDir);
+
+      expect(results.totalCorrections).toBe(0);
+
+      const content = JSON.parse(fs.readFileSync(jsonFile, 'utf-8'));
+      expect(content._meta.downloadStatus).toBe('failed');
+    });
+
+    it('should return zero corrections for empty directory', async () => {
+      const results = await syncAllStatuses(tempDir);
+      expect(results.totalCorrections).toBe(0);
+    });
+
+    it('should correct skipped status when file exists', async () => {
+      const jsonFile = path.join(tempDir, 'Skipped_sync-3.json');
+      const audioFile = path.join(tempDir, 'Skipped_sync-3.mp3');
+
+      fs.writeFileSync(audioFile, 'x'.repeat(200 * 1024));
+      fs.writeFileSync(jsonFile, JSON.stringify({
+        _meta: { downloadStatus: 'skipped', filename: 'Skipped_sync-3.mp3', exportedAt: '2026-01-01T00:00:00.000Z' },
+        apiResponse: { id: 'sync-3', title: 'Skipped Track' }
+      }));
+
+      const indexFile = path.join(tempDir, '_index.json');
+      fs.writeFileSync(indexFile, JSON.stringify({
+        _meta: { trackCount: 1, totalDuration: 0, directory: 'test' },
+        tracks: [{ id: 'sync-3', title: 'Skipped Track', filename: 'Skipped_sync-3.mp3', status: 'skipped' }]
+      }));
+
+      const results = await syncAllStatuses(tempDir);
+
+      expect(results.totalCorrections).toBe(1);
+
+      const content = JSON.parse(fs.readFileSync(jsonFile, 'utf-8'));
+      expect(content._meta.downloadStatus).toBe('success');
     });
   });
 });

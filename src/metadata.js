@@ -82,7 +82,9 @@ function formatDuration(seconds) {
  * @param {string} outputDir - Directory to scan and write _index.json
  * @returns {Object} Index object that was written, or null on error
  */
-export async function rebuildGlobalIndex(outputDir) {
+export async function rebuildGlobalIndex(outputDir, options = {}) {
+  const { syncStatus = false } = options;
+  
   try {
     if (!fs.existsSync(outputDir)) {
       console.error(`   ⚠️  Warning: Directory does not exist: ${outputDir}`);
@@ -96,6 +98,7 @@ export async function rebuildGlobalIndex(outputDir) {
     
     const tracks = [];
     let totalDuration = 0;
+    let statusCorrections = 0;
     
     for (const file of trackFiles) {
       try {
@@ -103,12 +106,31 @@ export async function rebuildGlobalIndex(outputDir) {
         const content = fs.readFileSync(filePath, 'utf-8');
         const metadata = JSON.parse(content);
         
+        const trackId = metadata.apiResponse?.id;
+        const storedFilename = metadata._meta?.filename;
+        let actualStatus = metadata._meta?.downloadStatus || 'unknown';
+        
+        if (syncStatus && storedFilename) {
+          const integrity = verifyTrackIntegrity(outputDir, {
+            id: trackId,
+            filename: storedFilename
+          });
+          
+          if (integrity.status === 'ok' && actualStatus !== 'success') {
+            actualStatus = 'success';
+            metadata._meta.downloadStatus = 'success';
+            metadata._meta.exportedAt = new Date().toISOString();
+            fs.writeFileSync(filePath, JSON.stringify(metadata, null, 2));
+            statusCorrections++;
+          }
+        }
+        
         const trackData = {
-          id: metadata.apiResponse?.id || null,
+          id: trackId || null,
           title: metadata.apiResponse?.title || 'Unknown',
-          filename: metadata._meta?.filename || null,
+          filename: storedFilename || null,
           duration: metadata._meta?.durationSeconds || metadata.apiResponse?.duration_s || 0,
-          status: metadata._meta?.downloadStatus || 'unknown',
+          status: actualStatus,
           exportedAt: metadata._meta?.exportedAt || null,
         };
         
@@ -140,12 +162,72 @@ export async function rebuildGlobalIndex(outputDir) {
     fs.writeFileSync(indexFile, JSON.stringify(index, null, 2));
     console.log(`\n📑 Index updated: ${indexFile}`);
     console.log(`   ${tracks.length} tracks, total duration: ${formatDuration(totalDuration)}`);
+    if (statusCorrections > 0) {
+      console.log(`   🔧 ${statusCorrections} status corrections applied`);
+    }
     
     return index;
   } catch (error) {
     console.error(`   ⚠️  Warning: Failed to rebuild index: ${error.message}`);
     return null;
   }
+}
+
+export async function syncAllStatuses(baseDir) {
+  const results = {
+    directoriesProcessed: 0,
+    totalCorrections: 0,
+    byDirectory: {}
+  };
+  
+  if (!fs.existsSync(baseDir)) {
+    return results;
+  }
+  
+  const directories = findAllIndexDirectories(baseDir);
+  
+  for (const dir of directories) {
+    const files = fs.readdirSync(dir);
+    const trackFiles = files.filter(f => f.endsWith('.json') && f !== '_index.json');
+    
+    let corrections = 0;
+    
+    for (const file of trackFiles) {
+      const filePath = path.join(dir, file);
+      try {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const metadata = JSON.parse(content);
+        
+        const storedFilename = metadata._meta?.filename;
+        const currentStatus = metadata._meta?.downloadStatus;
+        
+        if (!storedFilename) continue;
+        
+        const integrity = verifyTrackIntegrity(dir, {
+          id: metadata.apiResponse?.id,
+          filename: storedFilename
+        });
+        
+        if (integrity.status === 'ok' && currentStatus !== 'success') {
+          metadata._meta.downloadStatus = 'success';
+          metadata._meta.exportedAt = new Date().toISOString();
+          fs.writeFileSync(filePath, JSON.stringify(metadata, null, 2));
+          corrections++;
+        }
+      } catch {}
+    }
+    
+    if (corrections > 0) {
+      await rebuildGlobalIndex(dir);
+      const dirRelative = path.relative(baseDir, dir) || path.basename(dir);
+      results.byDirectory[dirRelative] = corrections;
+      results.totalCorrections += corrections;
+    }
+    
+    results.directoriesProcessed++;
+  }
+  
+  return results;
 }
 
 const MIN_FILE_SIZES = {

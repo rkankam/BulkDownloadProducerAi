@@ -7,7 +7,7 @@ import { downloadTrackWithRetry } from './downloader.js';
 import { loadState, saveState, loadPlaylistState, savePlaylistState, cleanupDownloadingFiles, loadFavoritesState, saveFavoritesState } from './state.js';
 import { createPlaylistDirectory } from './utils.js';
 import { promptDownloadMode, promptPlaylistSelection, promptFormatSelection, closeReadline } from './cli.js';
-import { collectMetadata, exportMetadata, exportTrackMetadata, rebuildGlobalIndex, scanIntegrityIssues, updateTrackMetadata } from './metadata.js';
+import { collectMetadata, exportMetadata, exportTrackMetadata, rebuildGlobalIndex, scanIntegrityIssues, updateTrackMetadata, syncAllStatuses } from './metadata.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = path.join(process.cwd(), 'config.json');
@@ -389,7 +389,21 @@ async function downloadPlaylists(config, selectedPlaylists) {
 async function repairDownloads(config) {
   console.log('\n📋 Step 4: Verify & Repair Downloads\n');
 
-  console.log('🔍 Scanning for integrity issues...\n');
+  console.log('🔄 Step 1: Syncing statuses with actual files...\n');
+
+  const syncResults = await syncAllStatuses(config.outputDir);
+
+  if (syncResults.totalCorrections > 0) {
+    console.log(`\n✅ Status corrections applied: ${syncResults.totalCorrections}`);
+    for (const [dir, count] of Object.entries(syncResults.byDirectory)) {
+      console.log(`   ${dir}: ${count} corrections`);
+    }
+    console.log();
+  } else {
+    console.log('   No status corrections needed.\n');
+  }
+
+  console.log('🔍 Step 2: Scanning for integrity issues...\n');
 
   const issues = scanIntegrityIssues(config.outputDir);
 
@@ -564,7 +578,8 @@ async function repairDownloads(config) {
   console.log('\n' + '='.repeat(60));
   console.log('🎉 Repair Complete!');
   console.log('='.repeat(60));
-  console.log(`\n✅ Files repaired:      ${stats.repaired}`);
+  console.log(`\n🔄 Status synced:       ${syncResults.totalCorrections}`);
+  console.log(`✅ Files repaired:      ${stats.repaired}`);
   console.log(`📄 Metadata fixed:     ${stats.metadataFixed}`);
   console.log(`🔗 Orphans recovered:  ${stats.orphansRecovered}`);
   console.log(`❌ Failed:             ${stats.failed}`);
